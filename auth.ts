@@ -1,9 +1,10 @@
 import NextAuth from 'next-auth';
 import { PrismaAdapter } from '@auth/prisma-adapter';
 import authConfig from '@/auth.config';
-import prisma from './lib/db';
-import { getUserById } from './data/user';
+import prisma from '@/lib/db';
+import { getUserById } from '@/data/user';
 import { UserRole } from '@prisma/client';
+import { getTwoFactorAuthenticationByUserId } from '@/data/two-factor-authentication';
 
 export const {
   handlers: { GET, POST },
@@ -11,7 +12,48 @@ export const {
   signIn,
   signOut,
 } = NextAuth({
+  pages: {
+    error: '/auth/error',
+    signIn: '/auth/login',
+  },
+  events: {
+    async linkAccount({ user }) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { emailVerified: new Date() },
+      });
+    },
+  },
   callbacks: {
+    async signIn({ user, account }) {
+      // Allow  OAuth Signin
+
+      if (account?.provider !== 'credentials') return true;
+
+      // Check if user has been verified
+      const existingUser = await getUserById(user.id);
+      if (!existingUser?.emailVerified) {
+        return false;
+      }
+      // Add 2FA check here
+      if (existingUser && existingUser.isTwoFactorEnabled) {
+        const existingTwoFactor = await getTwoFactorAuthenticationByUserId(
+          existingUser.id
+        );
+        if (!existingTwoFactor) {
+          return false;
+        }
+        // delete the token for next time
+        await prisma.twoFactorAuthentication.delete({
+          where: {
+            id: existingTwoFactor.id,
+          },
+        });
+        return true;
+      }
+
+      return true;
+    },
     async session({ session, user, token }) {
       if (token.sub && session.user) {
         session.user.id = token.sub;
@@ -19,6 +61,9 @@ export const {
 
       if (token.role && session.user) {
         session.user.role = token.role as UserRole;
+      }
+      if (token.isTwoFactorEnabled && session.user) {
+        session.user.isTwoFactorEnabled = token.isTwoFactorEnabled;
       }
       return session;
     },
@@ -31,6 +76,7 @@ export const {
         return token;
       }
       token.role = existingUser.role;
+      token.isTwoFactorEnabled = existingUser.isTwoFactorEnabled;
       return token;
     },
   },
