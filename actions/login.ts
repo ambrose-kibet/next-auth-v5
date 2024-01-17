@@ -1,9 +1,16 @@
 'use server';
 import { signIn } from '@/auth';
+import { getTwoFactorAuthenticationByUserId } from '@/data/two-factor-authentication';
+import { getTwoFactorTokenByEmail } from '@/data/two-factor-token';
 import { getUserByEmail } from '@/data/user';
 import { getVerificationTokenByEmail } from '@/data/verification-token';
-import { sendVerificationEmail } from '@/lib/mail';
-import { generateVerificationToken } from '@/lib/tokens';
+import prisma from '@/lib/db';
+import { sendVerificationEmail, sendTwoFactorToken } from '@/lib/mail';
+import {
+  generateTwoFactorToken,
+  generateVerificationToken,
+} from '@/lib/tokens';
+import bcrypt from 'bcryptjs';
 import { DEFAULT_LOGIN_REDIRECT } from '@/routes';
 import { LoginSchema } from '@/schemas';
 import { AuthError } from 'next-auth';
@@ -16,7 +23,7 @@ export const login = async (value: z.infer<typeof LoginSchema>) => {
       error: 'Invalid fields',
     };
   }
-  const { email, password } = validatedFields.data;
+  const { email, password, code } = validatedFields.data;
   const existingUser = await getUserByEmail(email);
   if (!existingUser || !existingUser.password || !existingUser.email) {
     return {
@@ -28,7 +35,7 @@ export const login = async (value: z.infer<typeof LoginSchema>) => {
     const existingToken = await getVerificationTokenByEmail(email);
     if (existingToken) {
       // if yes, check if token expired
-      if (existingToken.expiresAt < new Date()) {
+      if (new Date(existingToken.expiresAt) < new Date()) {
         // if yes, delete token and send new token
         const verificationToken = await generateVerificationToken(email);
         // send email
@@ -51,6 +58,64 @@ export const login = async (value: z.infer<typeof LoginSchema>) => {
     return {
       success: 'Verification email sent',
     };
+  }
+  // check if password exists compare before sending 2FA token
+  if (existingUser.password) {
+    const passwordMatch = await bcrypt.compare(password, existingUser.password);
+    if (!passwordMatch) {
+      return {
+        error: 'Invalid credentials',
+      };
+    }
+  }
+  if (existingUser.isTwoFactorEnabled) {
+    if (!code) {
+      const twoFactorToken = await generateTwoFactorToken(email);
+      await sendTwoFactorToken(twoFactorToken.email, twoFactorToken.token);
+      return {
+        twoFactor: true,
+      };
+    } else {
+      const twoFactorToken = await getTwoFactorTokenByEmail(existingUser.email);
+      if (!twoFactorToken) {
+        return {
+          error: 'Invalid credentials',
+        };
+      }
+      if (twoFactorToken.token !== code) {
+        return {
+          error: 'Invalid code',
+        };
+      }
+      const hasExpired = new Date(twoFactorToken.expiresAt) < new Date();
+      if (hasExpired) {
+        return {
+          error: 'Code has expired',
+        };
+      }
+
+      // delete the token for next time
+      await prisma.twoFactorToken.delete({
+        where: {
+          id: twoFactorToken.id,
+        },
+      });
+      // create 2FA record
+      const existingTwoFactorAuthentication =
+        await getTwoFactorAuthenticationByUserId(existingUser.id);
+      if (existingTwoFactorAuthentication) {
+        await prisma.twoFactorAuthentication.delete({
+          where: {
+            id: existingTwoFactorAuthentication.id,
+          },
+        });
+      }
+      await prisma.twoFactorAuthentication.create({
+        data: {
+          userId: existingUser.id,
+        },
+      });
+    }
   }
 
   try {
