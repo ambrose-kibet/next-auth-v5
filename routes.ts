@@ -5,7 +5,7 @@
  * These routes are not protected by the authentication middleware
  * @type {string[]}
  */
-export const publicRoutes = ['/'];
+export const publicRoutes = ['/', '/auth/new-verification'];
 /**
  * An array of routes that are accessible to authenticated users
  * These routes are protected by the authentication middleware
@@ -20,7 +20,13 @@ export const privateRoutes = ['/settings', '/client', '/server'];
  * These routes are not protected by the authentication middleware
  * @type {string[]}
  */
-export const authRoutes = ['/auth/login', '/auth/register'];
+export const authRoutes = [
+  '/auth/login',
+  '/auth/register',
+  '/auth/error',
+  '/auth/reset',
+  '/auth/reset-password',
+];
 /**
  * The prefix for the api  authentication routes
  * @type {string}
