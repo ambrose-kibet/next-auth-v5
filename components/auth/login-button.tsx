@@ -19,13 +19,13 @@ const LoginButton = ({ children, mode = 'redirect', asChildren }: Props) => {
   const session = useSession();
 
   const handleClick = () => {
-    if (session.data?.user) {
-      router.push(callBackUrl);
-      return;
-    }
-
     router.push('/auth/login');
   };
+  if (session.data?.user) {
+    router.push(callBackUrl);
+    return;
+  }
+
   if (mode === 'modal') {
     return (
       <Dialog>
