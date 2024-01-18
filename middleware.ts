@@ -34,12 +34,17 @@ export default auth((req) => {
   }
 
   if (!isLoggedIn && !isPublicRoute) {
-    return Response.redirect(new URL('/auth/login', nextUrl));
+    let callBackUrl = nextUrl.pathname;
+    if (nextUrl.search) {
+      callBackUrl += nextUrl.search;
+    }
+    const encodedUrl = encodeURIComponent(callBackUrl);
+
+    return Response.redirect(
+      new URL(`/auth/login?callbackUrl=${encodedUrl}`, nextUrl)
+    );
   }
-  // protect admin routes
-  // if (isLoggedIn && isAdminRoute && !req.auth?.user.role === 'admin') {
-  //   return Response.redirect(new URL(DEFAULT_LOGIN_REDIRECT, nextUrl));
-  // }
+
   // req.auth
   return null;
 });
