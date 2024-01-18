@@ -29,7 +29,7 @@ export default function Home() {
         </p>
 
         <div className="flex justify-center">
-          <LoginButton>
+          <LoginButton mode="modal" asChildren>
             <Button size={'lg'} className="capitalize ">
               Get Started
             </Button>
